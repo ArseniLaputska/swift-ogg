@@ -15,6 +15,7 @@
  **/
 
 import Foundation
+import AVFAudio.AVAudioPCMBuffer
 import AudioToolbox
 import YbridOpus
 import YbridOgg
@@ -158,6 +159,72 @@ public class OGGEncoder {
         // assemble pages and add to ogg cache
         assemblePages(flush: true)
     }
+    
+    public func encode(buffer: AVAudioPCMBuffer) throws {
+        let audioFormat = buffer.format
+        
+        switch audioFormat.commonFormat {
+            case .pcmFormatInt16:
+                try encodeInterleavedPCMBuffer(buffer)
+                
+            case .pcmFormatFloat32:
+                try encodeFloat32PCMBuffer(buffer)
+                
+            default:
+                print("Unsupported audio format. Expected Int16 or Float32 format.")
+                throw OpusError.internalError
+        }
+    }
+    
+    private func encodeInterleavedPCMBuffer(_ buffer: AVAudioPCMBuffer) throws {
+        guard let channelData = buffer.int16ChannelData else {
+            print("Failed to get channel data.")
+            throw OpusError.internalError
+        }
+        
+        let frameLength = Int(buffer.frameLength)
+        let channelCount = Int(buffer.format.channelCount)
+        var interleavedPCMData = [Int16]()
+        interleavedPCMData.reserveCapacity(frameLength * channelCount)
+        
+        for frameIndex in 0..<frameLength {
+            for channelIndex in 0..<channelCount {
+                let sampleValue = channelData[channelIndex][frameIndex]
+                interleavedPCMData.append(sampleValue)
+            }
+        }
+        
+        try interleavedPCMData.withUnsafeBufferPointer { pointer in
+            try encode(pcm: pointer.baseAddress!, count: interleavedPCMData.count * MemoryLayout<Int16>.stride)
+        }
+    }
+
+    private func encodeFloat32PCMBuffer(_ buffer: AVAudioPCMBuffer) throws {
+        guard let channelData = buffer.floatChannelData else {
+            print("Failed to get channel data.")
+            throw OpusError.internalError
+        }
+        
+        let frameLength = Int(buffer.frameLength)
+        let channelCount = Int(buffer.format.channelCount)
+        var interleavedPCMData = [Int16]()
+        interleavedPCMData.reserveCapacity(frameLength * channelCount)
+        
+        // Convert and interleave the audio data from Float32 to Int16
+        for frameIndex in 0..<frameLength {
+            for channelIndex in 0..<channelCount {
+                // Scale from Float32's [-1, 1] to Int16's [-32768, 32767]
+                let sampleValue = channelData[channelIndex][frameIndex]
+                let int16Value = Int16(max(-32768, min(32767, sampleValue * 32767.0)))
+                interleavedPCMData.append(int16Value)
+            }
+        }
+        
+        try interleavedPCMData.withUnsafeBufferPointer { pointer in
+            try encode(pcm: pointer.baseAddress!, count: interleavedPCMData.count * MemoryLayout<Int16>.stride)
+        }
+    }
+
 
     public func encode(pcm: AudioQueueBuffer) throws {
         let pcmData = pcm.mAudioData.assumingMemoryBound(to: Int16.self)
