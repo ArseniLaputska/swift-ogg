@@ -15,7 +15,7 @@
  **/
 
 import Foundation
-import AVFAudio.AVAudioPCMBuffer
+import AVFAudio
 import AudioToolbox
 import YbridOpus
 import YbridOgg
