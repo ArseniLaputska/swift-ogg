@@ -30,8 +30,8 @@ public class OGGEncoder {
     private typealias opus_encoder = OpaquePointer
     
     public struct EncodeOpusResult {
-        let bytes: Int
-        let buffer: Data
+        public let bytes: Int
+        public let buffer: Data
     }
 
     private var stream: ogg_stream_state   // state of the ogg stream
