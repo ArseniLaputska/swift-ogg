@@ -301,7 +301,7 @@ public class OGGEncoder {
             pcmCache.append(data, count: count)
         }
         
-        let data = Data(opus.prefix(Int(totalBytesEncoded)))
+        let data = Data(opus)
         return EncodeOpusResult(bytes: Int(totalBytesEncoded), buffer: data)
     }
 
