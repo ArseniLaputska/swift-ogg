@@ -167,10 +167,10 @@ public class OGGEncoder {
     }
     
     public func encode(_ input: AVAudioPCMBuffer, to output: inout Data) throws -> Int {
+        try encode(buffer: input)
         output.count = try output.withUnsafeMutableBytes {
             try encode(input, to: $0)
         }
-        try encode(buffer: input)
         return output.count
     }
     
