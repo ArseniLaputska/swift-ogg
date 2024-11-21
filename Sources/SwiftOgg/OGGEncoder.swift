@@ -39,7 +39,7 @@ public class OGGEncoder {
     private var granulePosition: Int64     // total number of encoded pcm samples in the stream
     private var packetNumber: Int64        // total number of packets encoded in the stream
     private let frameSize: Int32           // number of pcm frames to encode in an opus frame (20ms)
-    private let maxFrameSize: Int32 = 3832 // maximum size of an opus frame
+    private let maxFrameSize: Int32 = 1500 // maximum size of an opus frame
     private let opusRate: Int32            // desired sample rate of the opus audio
     private let pcmBytesPerFrame: UInt32   // bytes per frame in the pcm audio
     private var pcmCache = Data()          // cache for pcm audio that is too short to encode
@@ -301,7 +301,7 @@ public class OGGEncoder {
             pcmCache.append(data, count: count)
         }
         
-        let data = Data(opus)
+        let data = Data(opus.prefix(Int(totalBytesEncoded)))
         return EncodeOpusResult(bytes: Int(totalBytesEncoded), buffer: data)
     }
 
