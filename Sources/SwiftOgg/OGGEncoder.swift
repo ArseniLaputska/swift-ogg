@@ -308,7 +308,7 @@ public class OGGEncoder {
         while count >= Int(frameSize) * Int(pcmBytesPerFrame) {
 
             // encode an opus frame
-            let numBytes = opus_encode(encoder, pcm, frameSize, &opus, Int32(maxFrameSize))
+            let numBytes = opus_encode(encoder, pcm, frameSize, &opus, maxFrameSize)
             guard numBytes >= 0 else {
                 throw OpusError.internalError
             }
