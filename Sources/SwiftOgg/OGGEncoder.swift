@@ -256,8 +256,8 @@ public class OGGEncoder {
 
         // construct audio buffers
         var pcm = UnsafeMutablePointer<Int16>(mutating: pcm)
-//        let data = Data(count: 1500)
-//        let output = UnsafeMutableBufferPointer(start: data.baseAddress!.bindMemory(to: UInt8.self, capacity: 1500), count: 1500)
+        var outputBuffer = UnsafeMutableBufferPointer<UInt8>.allocate(capacity: Int(maxFrameSize))
+        defer { outputBuffer.deallocate() }
         var totalEncodedData = Data()
         var opus = [UInt8](repeating: 0, count: Int(maxFrameSize))
         var count = count
@@ -270,17 +270,19 @@ public class OGGEncoder {
         while count >= Int(frameSize) * Int(pcmBytesPerFrame) {
 
             // encode an opus frame
-            let numBytes = opus_encode(encoder, pcm, frameSize, &opus, maxFrameSize)
+            let numBytes = opus_encode(encoder, pcm, frameSize, outputBuffer.baseAddress!, Int32(outputBuffer.count))
             guard numBytes >= 0 else {
                 throw OpusError.internalError
             }
             totalBytesEncoded += numBytes
-            totalEncodedData.append(contentsOf: opus[0..<Int(numBytes)])
+//            totalEncodedData.append(contentsOf: opus[0..<Int(numBytes)])
+            let data = Data(buffer: UnsafeBufferPointer(start: outputBuffer.baseAddress!, count: Int(numBytes)))
+            totalEncodedData.append(data)
             
             // construct ogg packet with opus frame
             var packet = ogg_packet()
             granulePosition += Int64(frameSize * 48000 / opusRate)
-            packet.packet = UnsafeMutablePointer<UInt8>(mutating: opus)
+            packet.packet = UnsafeMutablePointer<UInt8>(mutating: outputBuffer.baseAddress!)
             packet.bytes = Int(numBytes)
             packet.b_o_s = 0
             packet.e_o_s = 0
