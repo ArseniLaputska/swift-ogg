@@ -42,6 +42,7 @@ public class OGGEncoder {
     private let maxFrameSize: Int32 = 3832 // maximum size of an opus frame
     private let opusRate: Int32            // desired sample rate of the opus audio
     private let pcmBytesPerFrame: UInt32   // bytes per frame in the pcm audio
+    private let pcmChannels: Int32
     private var pcmCache = Data()          // cache for pcm audio that is too short to encode
     private var oggCache = Data()          // cache for ogg stream
 
@@ -67,6 +68,7 @@ public class OGGEncoder {
         self.packetNumber = 0
         self.frameSize = Int32(960 / (48000 / opusRate))
         self.opusRate = opusRate
+        self.pcmChannels = pcmChannels
         self.pcmBytesPerFrame = pcmBytesPerFrame
         self.pcmCache = Data()
 
@@ -164,6 +166,44 @@ public class OGGEncoder {
         assemblePages(flush: true)
     }
     
+    public func encode(_ input: AVAudioPCMBuffer, to output: inout Data) throws -> Int {
+        output.count = try output.withUnsafeMutableBytes {
+            try encode(input, to: $0)
+        }
+        try encode(buffer: input)
+        return output.count
+    }
+    
+    public func encode(_ input: AVAudioPCMBuffer, to output: UnsafeMutableRawBufferPointer) throws -> Int {
+        let output = UnsafeMutableBufferPointer(start: output.baseAddress!.bindMemory(to: UInt8.self, capacity: output.count), count: output.count)
+        return try encode(input, to: output)
+    }
+    
+    public func encode(_ input: AVAudioPCMBuffer, to output: UnsafeMutableBufferPointer<UInt8>) throws -> Int {
+        switch input.format.commonFormat {
+            case .pcmFormatFloat32:
+                let input = UnsafeBufferPointer(start: input.floatChannelData![0], count: Int(input.frameLength * input.format.channelCount))
+                return try encode(input, to: output)
+            default:
+                throw OpusError.badArgument
+        }
+    }
+    
+    private func encode(_ input: UnsafeBufferPointer<Float32>, to output: UnsafeMutableBufferPointer<UInt8>) throws -> Int {
+        let encodedSize = opus_encode_float(
+            encoder,
+            input.baseAddress!,
+            Int32(input.count) / pcmChannels,
+            output.baseAddress!,
+            Int32(output.count)
+        )
+        if encodedSize < 0 {
+            throw OpusError.bufferTooSmall
+        }
+        return Int(encodedSize)
+    }
+    
+    @discardableResult
     public func encode(buffer: AVAudioPCMBuffer) throws -> EncodeOpusResult {
         let audioFormat = buffer.format
         
@@ -256,9 +296,6 @@ public class OGGEncoder {
 
         // construct audio buffers
         var pcm = UnsafeMutablePointer<Int16>(mutating: pcm)
-        var outputBuffer = UnsafeMutableBufferPointer<UInt8>.allocate(capacity: Int(maxFrameSize))
-        defer { outputBuffer.deallocate() }
-        var totalEncodedData = Data()
         var opus = [UInt8](repeating: 0, count: Int(maxFrameSize))
         var count = count
 
@@ -266,23 +303,22 @@ public class OGGEncoder {
         try encodeCache(pcm: &pcm, bytes: &count)
 
         var totalBytesEncoded: opus_int32 = .zero
+        var totalEncodedData = Data()
         // encode complete frames
         while count >= Int(frameSize) * Int(pcmBytesPerFrame) {
 
             // encode an opus frame
-            let numBytes = opus_encode(encoder, pcm, frameSize, outputBuffer.baseAddress!, Int32(outputBuffer.count))
+            let numBytes = opus_encode(encoder, pcm, frameSize, &opus, Int32(maxFrameSize))
             guard numBytes >= 0 else {
                 throw OpusError.internalError
             }
             totalBytesEncoded += numBytes
-//            totalEncodedData.append(contentsOf: opus[0..<Int(numBytes)])
-            let data = Data(buffer: UnsafeBufferPointer(start: outputBuffer.baseAddress!, count: Int(numBytes)))
-            totalEncodedData.append(data)
+            totalEncodedData.append(contentsOf: opus[0..<Int(numBytes)])
             
             // construct ogg packet with opus frame
             var packet = ogg_packet()
             granulePosition += Int64(frameSize * 48000 / opusRate)
-            packet.packet = UnsafeMutablePointer<UInt8>(mutating: outputBuffer.baseAddress!)
+            packet.packet = UnsafeMutablePointer<UInt8>(mutating: opus)
             packet.bytes = Int(numBytes)
             packet.b_o_s = 0
             packet.e_o_s = 0
@@ -307,7 +343,6 @@ public class OGGEncoder {
             pcmCache.append(data, count: count)
         }
         
-//        let data = Data(opus.prefix(Int(totalBytesEncoded)))
         return EncodeOpusResult(bytes: Int(totalBytesEncoded), buffer: totalEncodedData)
     }
 
