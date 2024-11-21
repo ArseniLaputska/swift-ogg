@@ -20,7 +20,6 @@ import AudioToolbox
 import YbridOpus
 import YbridOgg
 
-
 public class OGGEncoder {
 
     // This implementation uses the libopus and libogg libraries to encode and encapsulate audio.
@@ -29,6 +28,11 @@ public class OGGEncoder {
 
     // swiftlint:disable:next type_name
     private typealias opus_encoder = OpaquePointer
+    
+    public struct EncodeOpusResult {
+        let bytes: Int
+        let buffer: Data
+    }
 
     private var stream: ogg_stream_state   // state of the ogg stream
     private var encoder: opus_encoder      // encoder to convert pcm to opus
@@ -160,15 +164,15 @@ public class OGGEncoder {
         assemblePages(flush: true)
     }
     
-    public func encode(buffer: AVAudioPCMBuffer) throws {
+    public func encode(buffer: AVAudioPCMBuffer) throws -> EncodeOpusResult {
         let audioFormat = buffer.format
         
         switch audioFormat.commonFormat {
             case .pcmFormatInt16:
-                try encodeInterleavedPCMBuffer(buffer)
+                return try encodeInterleavedPCMBuffer(buffer)
                 
             case .pcmFormatFloat32:
-                try encodeFloat32PCMBuffer(buffer)
+                return try encodeFloat32PCMBuffer(buffer)
                 
             default:
                 print("Unsupported audio format. Expected Int16 or Float32 format.")
@@ -176,7 +180,7 @@ public class OGGEncoder {
         }
     }
     
-    private func encodeInterleavedPCMBuffer(_ buffer: AVAudioPCMBuffer) throws {
+    private func encodeInterleavedPCMBuffer(_ buffer: AVAudioPCMBuffer) throws -> EncodeOpusResult {
         guard let channelData = buffer.int16ChannelData else {
             print("Failed to get channel data.")
             throw OpusError.internalError
@@ -194,12 +198,15 @@ public class OGGEncoder {
             }
         }
         
-        try interleavedPCMData.withUnsafeBufferPointer { pointer in
-            try encode(pcm: pointer.baseAddress!, count: interleavedPCMData.count * MemoryLayout<Int16>.stride)
+        return try interleavedPCMData.withUnsafeBufferPointer { pointer in
+            try encode(
+                pcm: pointer.baseAddress!,
+                count: interleavedPCMData.count * MemoryLayout<Int16>.stride
+            )
         }
     }
 
-    private func encodeFloat32PCMBuffer(_ buffer: AVAudioPCMBuffer) throws {
+    private func encodeFloat32PCMBuffer(_ buffer: AVAudioPCMBuffer) throws -> EncodeOpusResult {
         guard let channelData = buffer.floatChannelData else {
             print("Failed to get channel data.")
             throw OpusError.internalError
@@ -220,8 +227,11 @@ public class OGGEncoder {
             }
         }
         
-        try interleavedPCMData.withUnsafeBufferPointer { pointer in
-            try encode(pcm: pointer.baseAddress!, count: interleavedPCMData.count * MemoryLayout<Int16>.stride)
+        return try interleavedPCMData.withUnsafeBufferPointer { pointer in
+            try encode(
+                pcm: pointer.baseAddress!,
+                count: interleavedPCMData.count * MemoryLayout<Int16>.stride
+            )
         }
     }
 
@@ -237,7 +247,8 @@ public class OGGEncoder {
         }
     }
 
-    internal func encode(pcm: UnsafePointer<Int16>, count: Int) throws {
+    @discardableResult
+    internal func encode(pcm: UnsafePointer<Int16>, count: Int) throws -> EncodeOpusResult {
         // ensure we have complete pcm frames
         guard UInt32(count) % pcmBytesPerFrame == 0 else {
             throw OpusError.internalError
@@ -251,6 +262,7 @@ public class OGGEncoder {
         // encode cache, if necessary
         try encodeCache(pcm: &pcm, bytes: &count)
 
+        var totalBytesEncoded: opus_int32 = .zero
         // encode complete frames
         while count >= Int(frameSize) * Int(pcmBytesPerFrame) {
 
@@ -259,7 +271,8 @@ public class OGGEncoder {
             guard numBytes >= 0 else {
                 throw OpusError.internalError
             }
-
+            totalBytesEncoded += numBytes
+            
             // construct ogg packet with opus frame
             var packet = ogg_packet()
             granulePosition += Int64(frameSize * 48000 / opusRate)
@@ -287,6 +300,9 @@ public class OGGEncoder {
         pcm.withMemoryRebound(to: UInt8.self, capacity: count) { data in
             pcmCache.append(data, count: count)
         }
+        
+        let data = Data(opus.prefix(Int(totalBytesEncoded)))
+        return EncodeOpusResult(bytes: Int(totalBytesEncoded), buffer: data)
     }
 
     private func encodeCache(pcm: inout UnsafeMutablePointer<Int16>, bytes: inout Int) throws {
