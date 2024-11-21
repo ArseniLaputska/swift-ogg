@@ -39,7 +39,7 @@ public class OGGEncoder {
     private var granulePosition: Int64     // total number of encoded pcm samples in the stream
     private var packetNumber: Int64        // total number of packets encoded in the stream
     private let frameSize: Int32           // number of pcm frames to encode in an opus frame (20ms)
-    private let maxFrameSize: Int32 = 1500 // maximum size of an opus frame
+    private let maxFrameSize: Int32 = 3832 // maximum size of an opus frame
     private let opusRate: Int32            // desired sample rate of the opus audio
     private let pcmBytesPerFrame: UInt32   // bytes per frame in the pcm audio
     private var pcmCache = Data()          // cache for pcm audio that is too short to encode
@@ -256,6 +256,9 @@ public class OGGEncoder {
 
         // construct audio buffers
         var pcm = UnsafeMutablePointer<Int16>(mutating: pcm)
+//        let data = Data(count: 1500)
+//        let output = UnsafeMutableBufferPointer(start: data.baseAddress!.bindMemory(to: UInt8.self, capacity: 1500), count: 1500)
+        var totalEncodedData = Data()
         var opus = [UInt8](repeating: 0, count: Int(maxFrameSize))
         var count = count
 
@@ -272,6 +275,7 @@ public class OGGEncoder {
                 throw OpusError.internalError
             }
             totalBytesEncoded += numBytes
+            totalEncodedData.append(contentsOf: opus[0..<Int(numBytes)])
             
             // construct ogg packet with opus frame
             var packet = ogg_packet()
@@ -301,8 +305,8 @@ public class OGGEncoder {
             pcmCache.append(data, count: count)
         }
         
-        let data = Data(opus.prefix(Int(totalBytesEncoded)))
-        return EncodeOpusResult(bytes: Int(totalBytesEncoded), buffer: data)
+//        let data = Data(opus.prefix(Int(totalBytesEncoded)))
+        return EncodeOpusResult(bytes: Int(totalBytesEncoded), buffer: totalEncodedData)
     }
 
     private func encodeCache(pcm: inout UnsafeMutablePointer<Int16>, bytes: inout Int) throws {
